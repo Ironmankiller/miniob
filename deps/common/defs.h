@@ -30,7 +30,7 @@ namespace common {
 #ifndef gettid
 #if defined(__MACH__)
 #define gettid() ((long long)pthread_self())
-#elif defined(LINUX)
+#else
 #define gettid() ((long long)pthread_self())
 #endif
 
