@@ -306,6 +306,12 @@ bool RecordPageHandler::is_full() const
   return page_header_->record_num >= page_header_->record_capacity;
 }
 
+bool RecordPageHandler::is_freed() const
+{
+  return disk_buffer_pool_ == nullptr;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 
 RC RecordFileHandler::init(DiskBufferPool *buffer_pool)
@@ -442,7 +448,11 @@ RC RecordFileHandler::delete_record(const RID *rid)
   }
   rc = page_handler.delete_record(rid);
   if (rc == RC::SUCCESS) {
-    free_pages_.insert(rid->page_num);
+    if (page_handler.is_freed()) {
+      free_pages_.erase(rid->page_num);
+    } else {
+      free_pages_.insert(rid->page_num);
+    }
   }
   return rc;
 }
