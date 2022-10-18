@@ -43,6 +43,7 @@ void Trx::next_current_id()
 {
   Trx::next_trx_id();
   trx_id_ = trx_id;
+  clear_operation();
 }
 
 int32_t Trx::get_current_id()
@@ -89,7 +90,7 @@ RC Trx::insert_record(Table *table, Record *record)
   // start_if_not_started();
   
   // 记录到operations中
-  insert_operation(table, Operation::Type::INSERT, record->rid());
+  insert_operation(table, Operation::Type::INSERT, record);
   return rc;
 }
 
@@ -107,7 +108,7 @@ RC Trx::delete_record(Table *table, Record *record)
     }
   }
   set_record_trx_id(table, *record, trx_id_, true);
-  insert_operation(table, Operation::Type::DELETE, record->rid());
+  insert_operation(table, Operation::Type::DELETE, record);
   return rc;
 }
 
@@ -145,10 +146,15 @@ Operation *Trx::find_operation(Table *table, const RID &rid)
   return const_cast<Operation *>(&(*operation_iter));
 }
 
-void Trx::insert_operation(Table *table, Operation::Type type, const RID &rid)
+void Trx::insert_operation(Table *table, Operation::Type type, Record *record)
 {
   OperationSet &table_operations = operations_[table];
-  table_operations.emplace(type, rid);
+  // 如果是删除操作，由于可能会进行回滚操作，所以需要记录被删除的record值
+  if (type == Operation::Type::DELETE) {
+    table_operations.emplace(type, record);
+  } else {
+    table_operations.emplace(type, record->rid());
+  }
 }
 
 void Trx::delete_operation(Table *table, const RID &rid)
@@ -161,6 +167,11 @@ void Trx::delete_operation(Table *table, const RID &rid)
 
   Operation tmp(Operation::Type::UNDEFINED, rid);
   table_operations_iter->second.erase(tmp);
+}
+
+void Trx::clear_operation() 
+{
+  operations_.clear();
 }
 
 RC Trx::commit()
@@ -213,8 +224,10 @@ RC Trx::rollback()
     for (const Operation &operation : operation_set) {
 
       RID rid;
+      Record* record;
       rid.page_num = operation.page_num();
       rid.slot_num = operation.slot_num();
+      record = operation.record();
 
       switch (operation.type()) {
         case Operation::Type::INSERT: {
@@ -226,7 +239,7 @@ RC Trx::rollback()
           }
         } break;
         case Operation::Type::DELETE: {
-          rc = table->rollback_delete(this, rid);
+          rc = table->rollback_delete(this, record);
           if (rc != RC::SUCCESS) {
             // handle rc
             LOG_ERROR(

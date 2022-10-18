@@ -36,7 +36,10 @@ public:
   };
 
 public:
-  Operation(Type type, const RID &rid) : type_(type), page_num_(rid.page_num), slot_num_(rid.slot_num)
+  Operation(Type type, Record* record) : type_(type), record_(record), page_num_(record->rid().page_num), slot_num_(record->rid().slot_num)
+  {}
+
+  Operation(Type type, const RID &rid) : type_(type), record_(nullptr), page_num_(rid.page_num), slot_num_(rid.slot_num)
   {}
 
   Type type() const
@@ -51,9 +54,14 @@ public:
   {
     return slot_num_;
   }
+  Record* record() const
+  {
+    return record_;
+  }
 
 private:
   Type type_;
+  Record* record_;
   PageNum page_num_;
   SlotNum slot_num_;
 };
@@ -119,8 +127,9 @@ private:
   using OperationSet = std::unordered_set<Operation, OperationHasher, OperationEqualer>;
 
   Operation *find_operation(Table *table, const RID &rid);
-  void insert_operation(Table *table, Operation::Type type, const RID &rid);
+  void insert_operation(Table *table, Operation::Type type, Record* record);
   void delete_operation(Table *table, const RID &rid);
+  void clear_operation();
 
 private:
   void start_if_not_started();
