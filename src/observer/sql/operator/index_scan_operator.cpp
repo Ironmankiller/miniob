@@ -15,10 +15,10 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/index_scan_operator.h"
 #include "storage/index/index.h"
 
-IndexScanOperator::IndexScanOperator(const Table *table, Index *index,
+IndexScanOperator::IndexScanOperator(const Table *table, Index *index, Trx *trx,
 		const TupleCell *left_cell, bool left_inclusive,
 		const TupleCell *right_cell, bool right_inclusive)
-  : table_(table), index_(index),
+  : table_(table), index_(index), trx_(trx),
     left_inclusive_(left_inclusive), right_inclusive_(right_inclusive)
 {
   if (left_cell) {

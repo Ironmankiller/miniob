@@ -78,6 +78,7 @@ public:
   }
 
   RC delete_record(const RID *rid);
+  RC recover_delete_record(const RID *rid);
 
   RC get_record(const RID *rid, Record *rec);
 
@@ -118,6 +119,7 @@ public:
    * 从指定文件中删除标识符为rid的记录
    */
   RC delete_record(const RID *rid);
+  RC recover_delete_record(const RID *rid);
 
   /**
    * 插入一个新的记录到指定文件中，pData为指向新纪录内容的指针，返回该记录的标识符rid

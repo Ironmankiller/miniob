@@ -16,11 +16,12 @@ See the Mulan PSL v2 for more details. */
 
 #include "sql/operator/operator.h"
 #include "sql/expr/tuple.h"
+#include "storage/trx/trx.h"
 
 class IndexScanOperator : public Operator
 {
 public: 
-  IndexScanOperator(const Table *table, Index *index,
+  IndexScanOperator(const Table *table, Index *index, Trx *trx,
 		    const TupleCell *left_cell, bool left_inclusive,
 		    const TupleCell *right_cell, bool right_inclusive);
 
@@ -34,6 +35,7 @@ public:
 private:
   const Table *table_ = nullptr;
   Index *index_ = nullptr;
+  Trx *trx_;
   IndexScanner *index_scanner_ = nullptr;
   RecordFileHandler *record_handler_ = nullptr;
 

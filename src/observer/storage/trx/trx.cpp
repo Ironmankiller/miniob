@@ -88,19 +88,20 @@ RC Trx::insert_record(Table *table, Record *record)
   }
 
   // start_if_not_started();
-  
+  set_record_trx_id(table, *record, trx_id_, false);
   // 记录到operations中
-  insert_operation(table, Operation::Type::INSERT, record);
+  insert_operation(table, Operation::Type::INSERT, record->rid());
   return rc;
 }
 
 RC Trx::delete_record(Table *table, Record *record)
 {
   RC rc = RC::SUCCESS;
-  start_if_not_started();
+  // start_if_not_started();
   Operation *old_oper = find_operation(table, record->rid());
   if (old_oper != nullptr) {
     if (old_oper->type() == Operation::Type::INSERT) {
+      set_record_trx_id(table, *record, trx_id_, true);
       delete_operation(table, record->rid());
       return RC::SUCCESS;
     } else {
@@ -108,16 +109,18 @@ RC Trx::delete_record(Table *table, Record *record)
     }
   }
   set_record_trx_id(table, *record, trx_id_, true);
-  insert_operation(table, Operation::Type::DELETE, record);
+  insert_operation(table, Operation::Type::DELETE, record->rid());
   return rc;
 }
 
-void Trx::set_record_trx_id(Table *table, Record &record, int32_t trx_id, bool deleted) const
+void Trx::set_record_trx_id(Table *table, Record &record, int32_t trx_id, bool deleted)
 {
   const FieldMeta *trx_field = table->table_meta().trx_field();
   int32_t *ptrx_id = (int32_t *)(record.data() + trx_field->offset());
   if (deleted) {
     trx_id |= DELETED_FLAG_BIT_MASK;
+  } else {
+    trx_id &=~ DELETED_FLAG_BIT_MASK;
   }
   *ptrx_id = trx_id;
 }
@@ -146,15 +149,10 @@ Operation *Trx::find_operation(Table *table, const RID &rid)
   return const_cast<Operation *>(&(*operation_iter));
 }
 
-void Trx::insert_operation(Table *table, Operation::Type type, Record *record)
+void Trx::insert_operation(Table *table, Operation::Type type, const RID& rid)
 {
   OperationSet &table_operations = operations_[table];
-  // 如果是删除操作，由于可能会进行回滚操作，所以需要记录被删除的record值
-  if (type == Operation::Type::DELETE) {
-    table_operations.emplace(type, record);
-  } else {
-    table_operations.emplace(type, record->rid());
-  }
+  table_operations.emplace(type, rid);
 }
 
 void Trx::delete_operation(Table *table, const RID &rid)
@@ -224,10 +222,8 @@ RC Trx::rollback()
     for (const Operation &operation : operation_set) {
 
       RID rid;
-      Record* record;
       rid.page_num = operation.page_num();
       rid.slot_num = operation.slot_num();
-      record = operation.record();
 
       switch (operation.type()) {
         case Operation::Type::INSERT: {
@@ -239,7 +235,7 @@ RC Trx::rollback()
           }
         } break;
         case Operation::Type::DELETE: {
-          rc = table->rollback_delete(this, record);
+          rc = table->rollback_delete(this, rid);
           if (rc != RC::SUCCESS) {
             // handle rc
             LOG_ERROR(

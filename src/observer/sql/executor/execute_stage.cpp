@@ -183,27 +183,15 @@ void ExecuteStage::handle_request(common::StageEvent *event)
     } break;
     case SCF_BEGIN: {
       do_begin(sql_event);
-      /*
-      session_event->set_response("SUCCESS\n");
-      */
     } break;
     case SCF_COMMIT: {
       do_commit(sql_event);
-      /*
-      Trx *trx = session->current_trx();
-      RC rc = trx->commit();
-      session->set_trx_multi_operation_mode(false);
-      session_event->set_response(strrc(rc));
-      */
     } break;
     case SCF_CLOG_SYNC: {
       do_clog_sync(sql_event);
-    }
+    } break;
     case SCF_ROLLBACK: {
-      Trx *trx = session_event->get_client()->session->current_trx();
-      RC rc = trx->rollback();
-      session->set_trx_multi_operation_mode(false);
-      session_event->set_response(strrc(rc));
+      do_rollback(sql_event);
     } break;
     case SCF_EXIT: {
       // do nothing
@@ -268,7 +256,7 @@ void tuple_to_string(std::ostream &os, const Tuple &tuple)
   }
 }
 
-IndexScanOperator *try_to_create_index_scan_operator(FilterStmt *filter_stmt)
+IndexScanOperator *try_to_create_index_scan_operator(Trx *trx, FilterStmt *filter_stmt)
 {
   const std::vector<FilterUnit *> &filter_units = filter_stmt->filter_units();
   if (filter_units.empty() ) {
@@ -384,7 +372,7 @@ IndexScanOperator *try_to_create_index_scan_operator(FilterStmt *filter_stmt)
   } break;
   }
 
-  IndexScanOperator *oper = new IndexScanOperator(table, index,
+  IndexScanOperator *oper = new IndexScanOperator(table, index, trx, 
        left_cell, left_inclusive, right_cell, right_inclusive);
 
   LOG_INFO("use index for scan: %s in table %s", index->index_meta().name(), table->name());
@@ -395,6 +383,7 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
 {
   SelectStmt *select_stmt = (SelectStmt *)(sql_event->stmt());
   SessionEvent *session_event = sql_event->session_event();
+  Trx *trx = session_event->session()->current_trx();
   RC rc = RC::SUCCESS;
   if (select_stmt->tables().size() != 1) {
     LOG_WARN("select more than 1 tables is not supported");
@@ -402,9 +391,9 @@ RC ExecuteStage::do_select(SQLStageEvent *sql_event)
     return rc;
   }
 
-  Operator *scan_oper = try_to_create_index_scan_operator(select_stmt->filter_stmt());
-  if (nullptr == scan_oper) {
-    scan_oper = new TableScanOperator(select_stmt->tables()[0]);
+  Operator *scan_oper = try_to_create_index_scan_operator(trx, select_stmt->filter_stmt());
+  if (nullptr == scan_oper) {   // 找不到合适的索引就全表扫描
+    scan_oper = new TableScanOperator(select_stmt->tables()[0], trx);
   }
 
   DEFER([&] () {delete scan_oper;});
@@ -560,6 +549,13 @@ RC ExecuteStage::do_insert(SQLStageEvent *sql_event)
         return rc;
       } 
 
+      rc = trx->commit();
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("cannot commit insert");
+        session_event->set_response("FAILURE\n");
+        return rc;
+      }
+
       trx->next_current_id();
       session_event->set_response("SUCCESS\n");
     } else {
@@ -586,7 +582,7 @@ RC ExecuteStage::do_delete(SQLStageEvent *sql_event)
   }
 
   DeleteStmt *delete_stmt = (DeleteStmt *)stmt;
-  TableScanOperator scan_oper(delete_stmt->table());
+  TableScanOperator scan_oper(delete_stmt->table(), trx);
   PredicateOperator pred_oper(delete_stmt->filter_stmt());
   pred_oper.add_child(&scan_oper);
   DeleteOperator delete_oper(delete_stmt, trx);
@@ -607,6 +603,13 @@ RC ExecuteStage::do_delete(SQLStageEvent *sql_event)
 
       rc = clog_manager->clog_append_record(clog_record);
       if (rc != RC::SUCCESS) {
+        session_event->set_response("FAILURE\n");
+        return rc;
+      } 
+
+      rc = trx->commit();
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("cannot commit delete");
         session_event->set_response("FAILURE\n");
         return rc;
       } 
@@ -671,9 +674,36 @@ RC ExecuteStage::do_commit(SQLStageEvent *sql_event)
     session_event->set_response("SUCCESS\n");
   }
 
+  rc = trx->commit();
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("cannot commit");
+    session_event->set_response("FAILURE\n");
+    return rc;
+  } 
+
   trx->next_current_id();
 
   return rc;
+}
+
+RC ExecuteStage::do_rollback(SQLStageEvent *sql_event)
+{
+  RC rc = RC::SUCCESS;
+  SessionEvent *session_event = sql_event->session_event();
+  Session *session = session_event->session();
+  session->set_trx_multi_operation_mode(false);
+
+  Trx *trx = session->current_trx();
+  
+  rc = trx->rollback();
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("cannot rollback");
+    session_event->set_response("FAILURE\n");
+    return rc;
+  } 
+  trx->next_current_id();
+
+  session_event->set_response(strrc(rc));
 }
 
 RC ExecuteStage::do_clog_sync(SQLStageEvent *sql_event)

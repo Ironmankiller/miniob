@@ -27,12 +27,17 @@ RC TableScanOperator::open()
 
 RC TableScanOperator::next()
 {
-  if (!record_scanner_.has_next()) {
-    return RC::RECORD_EOF;
-  }
+  while (true)
+  {
+    if (!record_scanner_.has_next()) {
+      return RC::RECORD_EOF;
+    }
 
-  RC rc = record_scanner_.next(current_record_);
-  return rc;
+    RC rc = record_scanner_.next(current_record_);
+    if (trx_ == nullptr || trx_->is_visible(table_, &current_record_)) {
+      return rc;
+    }
+  }
 }
 
 RC TableScanOperator::close()

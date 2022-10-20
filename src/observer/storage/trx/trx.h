@@ -36,10 +36,7 @@ public:
   };
 
 public:
-  Operation(Type type, Record* record) : type_(type), record_(record), page_num_(record->rid().page_num), slot_num_(record->rid().slot_num)
-  {}
-
-  Operation(Type type, const RID &rid) : type_(type), record_(nullptr), page_num_(rid.page_num), slot_num_(rid.slot_num)
+  Operation(Type type, const RID& rid) : type_(type), page_num_(rid.page_num), slot_num_(rid.slot_num)
   {}
 
   Type type() const
@@ -54,14 +51,9 @@ public:
   {
     return slot_num_;
   }
-  Record* record() const
-  {
-    return record_;
-  }
 
 private:
   Type type_;
-  Record* record_;
   PageNum page_num_;
   SlotNum slot_num_;
 };
@@ -119,15 +111,14 @@ public:
 
   int32_t get_current_id();
 
-private:
-  void set_record_trx_id(Table *table, Record &record, int32_t trx_id, bool deleted) const;
+  static void set_record_trx_id(Table *table, Record &record, int32_t trx_id, bool deleted);
   static void get_record_trx_id(Table *table, const Record &record, int32_t &trx_id, bool &deleted);
 
 private:
   using OperationSet = std::unordered_set<Operation, OperationHasher, OperationEqualer>;
 
   Operation *find_operation(Table *table, const RID &rid);
-  void insert_operation(Table *table, Operation::Type type, Record* record);
+  void insert_operation(Table *table, Operation::Type type, const RID& rid);
   void delete_operation(Table *table, const RID &rid);
   void clear_operation();
 

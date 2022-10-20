@@ -17,14 +17,15 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/operator.h"
 #include "storage/record/record_manager.h"
 #include "rc.h"
+#include "storage/trx/trx.h"
 
 class Table;
 
 class TableScanOperator : public Operator
 {
 public:
-  TableScanOperator(Table *table)
-    : table_(table)
+  TableScanOperator(Table *table, Trx* trx)
+    : table_(table), trx_(trx)
   {}
 
   virtual ~TableScanOperator() = default;
@@ -43,6 +44,7 @@ public:
   // RC tuple_cell_spec_at(int index, TupleCellSpec &spec) const override;
 private:
   Table *table_ = nullptr;
+  Trx* trx_ = nullptr;
   RecordFileScanner record_scanner_;
   Record current_record_;
   RowTuple tuple_;

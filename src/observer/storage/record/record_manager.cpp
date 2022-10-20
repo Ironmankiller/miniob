@@ -210,6 +210,11 @@ RC RecordPageHandler::recover_insert_record(const char *data, RID *rid)
 
   // 更新位图
   Bitmap bitmap(bitmap_, page_header_->record_capacity);
+  // 如果已经置位就不需要恢复数据了
+  if (bitmap.get_bit(rid->slot_num)) {
+    return RC::SUCCESS;
+  }
+
   bitmap.set_bit(rid->slot_num);
   page_header_->record_num++;
 
@@ -270,6 +275,34 @@ RC RecordPageHandler::delete_record(const RID *rid)
     LOG_ERROR("Invalid slot_num %d, slot is empty, page_num %d.",
 	      rid->slot_num, frame_->page_num());
     return RC::RECORD_RECORD_NOT_EXIST;
+  }
+}
+
+RC RecordPageHandler::recover_delete_record(const RID *rid)
+{
+  if (rid->slot_num >= page_header_->record_capacity) {
+    LOG_ERROR("Invalid slot_num %d, exceed page's record capacity, page_num %d.",
+	      rid->slot_num, frame_->page_num());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  Bitmap bitmap(bitmap_, page_header_->record_capacity);
+  if (bitmap.get_bit(rid->slot_num)) {
+    bitmap.clear_bit(rid->slot_num);
+    page_header_->record_num--;
+    frame_->mark_dirty();
+
+    if (page_header_->record_num == 0) {
+      DiskBufferPool *disk_buffer_pool = disk_buffer_pool_;
+      PageNum page_num = get_page_num();
+      cleanup();
+      disk_buffer_pool->dispose_page(page_num);
+    }
+    return RC::SUCCESS;
+  } else {
+    LOG_INFO("Record has been deleted before recovering slot_num %d, slot is empty, page_num %d.",
+	      rid->slot_num, frame_->page_num());
+    return RC::SUCCESS;
   }
 }
 
@@ -456,6 +489,26 @@ RC RecordFileHandler::delete_record(const RID *rid)
   }
   return rc;
 }
+
+RC RecordFileHandler::recover_delete_record(const RID *rid)
+{
+  RC rc = RC::SUCCESS;
+  RecordPageHandler page_handler;
+  if ((rc != page_handler.init(*disk_buffer_pool_, rid->page_num)) != RC::SUCCESS) {
+    LOG_INFO("Failed to init record page handler, maybe record has been deleted.page number=%d. rc=%s", rid->page_num, strrc(rc));
+    return RC::SUCCESS;
+  }
+  rc = page_handler.recover_delete_record(rid);
+  if (rc == RC::SUCCESS) {
+    if (page_handler.is_freed()) {
+      free_pages_.erase(rid->page_num);
+    } else {
+      free_pages_.insert(rid->page_num);
+    }
+  }
+  return rc;
+}
+
 
 RC RecordFileHandler::get_record(const RID *rid, Record *rec)
 {
